@@ -1,35 +1,49 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { Login } from "./pages/login";
+import { Signup } from "./pages/signup";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@radix-ui/react-tabs";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "./components/ui/card";
 
-function App() {
-  const [count, setCount] = useState(0)
-
+export default function App() {
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <div className="flex items-center justify-center min-h-screen font-poppins bg-gray-100">
+      <Card className="w-[380px]">
+        <CardHeader>
+          <CardTitle>Welcome</CardTitle>
+          <CardDescription>
+            Login or sign up using your fingerprint or credentials.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue="login" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 gap-x-3">
+              <TabsTrigger
+                value="login"
+                className="px-4 py-2 text-sm font-medium text-gray-700 rounded-md transition-all hover:bg-gray-200 focus:outline-none data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+              >
+                Login
+              </TabsTrigger>
+              <TabsTrigger
+                value="signup"
+                className="px-4 py-2 text-sm font-medium text-gray-700 rounded-md transition-all hover:bg-gray-200 focus:outline-none data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+              >
+                Sign Up
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="login">
+              <Login />
+            </TabsContent>
+            <TabsContent value="signup">
+              <Signup />
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
-
-export default App

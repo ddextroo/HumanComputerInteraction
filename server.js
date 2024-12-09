@@ -35,7 +35,6 @@ async function initDb() {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
-      devices TEXT,  -- Store devices as a JSON string
       currentChallenge TEXT
     )
   `);
@@ -44,11 +43,10 @@ async function initDb() {
 initDb();
 
 async function saveUser(username, data) {
-  const { devices, currentChallenge } = data;
   await db.run(
-    `INSERT OR REPLACE INTO users (id, devices, currentChallenge)
-     VALUES (?, ?, ?)`,
-    [username, JSON.stringify(devices), currentChallenge]
+    `INSERT OR REPLACE INTO users (id, currentChallenge)
+     VALUES (?, ?)`,
+    [username, data]
   );
 }
 
@@ -58,38 +56,45 @@ async function getUser(username) {
   return row
     ? {
         id: row.id,
-        devices: JSON.parse(row.devices),
         currentChallenge: row.currentChallenge,
       }
     : null;
 }
 
-// Endpoint to register options (generate challenge)
 app.post("/api/auth/webauthn/register-options", async (req, res) => {
-  const { username } = req.body;
+  const { username, challenge } = req.body;
 
   if (!username || typeof username !== "string" || username.length < 3) {
-    return res.status(400).send("Invalid username.");
+    return res.status(400).json({ error: "Invalid username." });
   }
 
   let user = await getUser(username);
   if (!user) {
-    user = { id: username, devices: [], currentChallenge: "" };
+    user = { id: username, currentChallenge: challenge };
   }
 
-  const options = generateRegistrationOptions({
-    rpName: "Your App Name",
-    rpID: "localhost",
-    userID: isoUint8Array.fromUTF8String(username),
-    userName: username,
+  await saveUser(user.id, JSON.stringify(challenge));
+
+  res.json({
+    challenge
   });
-
-  user.currentChallenge = options.challenge;
-
-  await saveUser(username, user);
-
-  res.json({ options });
 });
+
+app.post("/api/auth/webauthn/login-options", async (req, res) => {
+  const { username, challenge } = req.body;
+
+  if (!username || typeof username !== "string" || username.length < 3) {
+    return res.status(400).json({ error: "Invalid username." });
+  }
+
+  let user = await getUser(username);
+
+  res.json({
+    user
+  });
+});
+
+
 
 // Endpoint to verify registration response (attestation)
 app.post("/api/auth/webauthn/verify-registration", async (req, res) => {
@@ -109,7 +114,6 @@ app.post("/api/auth/webauthn/verify-registration", async (req, res) => {
   });
 
   if (verification.verified) {
-    user.devices.push(verification.registrationInfo);
     await saveUser(username, user);
     res.send({ success: true });
   } else {

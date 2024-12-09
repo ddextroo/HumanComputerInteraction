@@ -4,8 +4,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Fingerprint } from "lucide-react";
 
-import { authenticateFingerprint } from "@/utils/webauthn";
-
 export function Login() {
   const [username, setUsername] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -21,14 +19,52 @@ export function Login() {
     setErrorMessage(null);
 
     try {
-      const authenticated = await authenticateFingerprint(username);
-      if (!authenticated) {
-        setErrorMessage("Fingerprint authentication failed.");
-        return;
+
+      const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
+        challenge: Uint8Array.from(
+            // randomString(), c => c.charCodeAt(0)), 
+            username, c => c.charCodeAt(0)),
+        rp: {
+          name: "Your App Name",
+          id: window.location.hostname,
+        },
+        user: {
+          id: new Uint8Array(16), 
+          name: username,
+          displayName: username,
+        },
+        pubKeyCredParams: [
+          { type: "public-key", alg: -7 }, // ES256
+          { type: "public-key", alg: -257 }, // RS256
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: "platform",
+          userVerification: "required",
+        },
+        timeout: 60000,
+        attestation: "direct",
+      };
+
+      const credential = await navigator.credentials.create({
+        publicKey: publicKeyCredentialCreationOptions,
+      });
+
+      const optionsResponse = await fetch('http://localhost:3000/api/auth/webauthn/login-options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 'username': username, "challenge": publicKeyCredentialCreationOptions.challenge }),
+      });
+
+      const { user } = await optionsResponse.json();
+
+      if (user) {
+        console.log("Login successful for:", username);
+      }
+      else {
+        console.log("Account not exist:", username);
       }
 
-      // Handle successful login
-      console.log("Login successful for:", username);
+      
     } catch (error: any) {
       setErrorMessage(error.message);
     } finally {

@@ -1,41 +1,36 @@
+"use client"
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Fingerprint } from "lucide-react";
-import { registerFingerprint } from "@/utils/webauthn";
+import { Fingerprint } from 'lucide-react';
+import { FingerprintDialog } from "./signupDialog";
 
 export function Signup() {
   const [username, setUserName] = useState("");
   const [isFingerprintEnabled, setIsFingerprintEnabled] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  const handleRegisterFingerprint = async () => {
+  const handleRegisterFingerprint = () => {
     if (!username) {
       setErrorMessage(
         "Please enter a username before registering your fingerprint."
       );
       return;
     }
-
-    setIsLoading(true);
     setErrorMessage(null);
+    setIsDialogOpen(true);
+  };
 
-    try {
-      const supported = await registerFingerprint(username);
-      if (!supported) {
-        setErrorMessage(
-          "Fingerprint authentication is not supported on this device."
-        );
-        return;
-      }
-
+  const handleRegistrationComplete = (success: boolean) => {
+    if (success) {
       setIsFingerprintEnabled(true);
-    } catch (error) {
-      setErrorMessage("Error during fingerprint registration.");
-    } finally {
-      setIsLoading(false);
+      setErrorMessage(null);
+    } else {
+      setIsFingerprintEnabled(false);
+      setErrorMessage("Fingerprint registration failed. Please try again.");
     }
   };
 
@@ -58,21 +53,25 @@ export function Signup() {
             size="icon"
             className="w-24 h-24 rounded-full"
             onClick={handleRegisterFingerprint}
-            disabled={isLoading || isFingerprintEnabled}
+            disabled={isFingerprintEnabled}
           >
-            {isLoading ? (
-              <span className="loader" /> // Replace with your loading spinner
-            ) : (
-              <Fingerprint className="h-12 w-12" />
-            )}
+            <Fingerprint className="h-12 w-12" />
           </Button>
           <p className="text-sm text-center mt-2">
             {isFingerprintEnabled
               ? "Fingerprint registered successfully."
-              : errorMessage || ""}
+              : errorMessage || "Click to register your fingerprint."}
           </p>
         </div>
       </div>
+
+      <FingerprintDialog
+        isOpen={isDialogOpen}
+        onOpenChange={setIsDialogOpen}
+        username={username}
+        onRegistrationComplete={handleRegistrationComplete}
+      />
     </div>
   );
 }
+

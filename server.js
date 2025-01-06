@@ -25,6 +25,7 @@ app.use(express.json());
 let db;
 const dbName = "users.db";
 
+//Jomary
 async function initDb() {
   db = await open({
     filename: dbName,
@@ -35,48 +36,114 @@ async function initDb() {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
+      firstname TEXT NOT NULL,
+      lastname TEXT NOT NULL,
+      idnumber TEXT NOT NULL UNIQUE,
+      contact TEXT NOT NULL,
+      birthdate TEXT NOT NULL,
+      gender TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      civilstatus TEXT NOT NULL,
+      address TEXT NOT NULL,
+      username TEXT NOT NULL UNIQUE,
       currentChallenge TEXT
-    )
+      )
   `);
 }
 
 initDb();
 
-async function saveUser(username, data) {
+//Hansen
+async function saveUser(user) {
+  const {
+    id,
+    firstname,
+    lastname,
+    idnumber,
+    contact,
+    birthdate,
+    gender,
+    email,
+    civilstatus,
+    address,
+    username,
+    currentChallenge
+  } = user;
+
   await db.run(
-    `INSERT OR REPLACE INTO users (id, currentChallenge)
-     VALUES (?, ?)`,
-    [username, data]
+    `INSERT OR REPLACE INTO users (
+      id, firstname, lastname, idnumber, contact, birthdate, gender,
+      email, civilstatus, address, username, currentChallenge
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      username, firstname, lastname, idnumber, contact, birthdate, gender,
+      email, civilstatus, address, username, currentChallenge
+    ]
   );
 }
 
+
+//Jefferson
 // Get a user from the database
 async function getUser(username) {
   const row = await db.get(`SELECT * FROM users WHERE id = ?`, [username]);
+
   return row
     ? {
-        id: row.id,
+        firstname: row.firstname,
+        lastname: row.lastname,
+        idnumber: row.idnumber,
+        contact: row.contact,
+        birthdate: row.birthdate,
+        gender: row.gender,
+        email: row.email,
+        civilstatus: row.civilstatus,
+        address: row.address,
+        username: row.username,
         currentChallenge: row.currentChallenge,
       }
     : null;
 }
 
+
 app.post("/api/auth/webauthn/register-options", async (req, res) => {
-  const { username, challenge } = req.body;
+  const {
+    username, firstname, lastname, idnumber, contact,
+    birthdate, gender, email, civilstatus, address, challenge
+  } = req.body;
 
   if (!username || typeof username !== "string" || username.length < 3) {
     return res.status(400).json({ error: "Invalid username." });
   }
 
-  let user = await getUser(username);
-  if (!user) {
-    user = { id: username, currentChallenge: challenge };
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    return res.status(400).json({ error: "Invalid email." });
   }
 
-  await saveUser(user.id, JSON.stringify(challenge));
+  let user = await getUser(username);
+
+  if (!user) {
+    user = {
+      firstname,
+      lastname,
+      idnumber,
+      contact,
+      birthdate,
+      gender,
+      email,
+      civilstatus,
+      address,
+      username,
+      currentChallenge: JSON.stringify(challenge),
+    };
+  } else {
+    user.currentChallenge = challenge; 
+  }
+
+  await saveUser(user);
 
   res.json({
-    challenge
+    challenge,
   });
 });
 
@@ -162,7 +229,7 @@ app.post("/api/auth/webauthn/verify-authentication", async (req, res) => {
   });
 
   if (verification.verified) {
-    res.send({ success: true });
+    res.send({ success: true, user: user });
   } else {
     res.status(400).send("Authentication failed");
   }

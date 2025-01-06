@@ -12,6 +12,15 @@ interface FingerprintDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   username: string;
+  lastname: string;
+  firstname: string;
+  idnumber: string;
+  contact: string;
+  birthdate: string;
+  gender: string;
+  email: string;
+  civilstatus: string;
+  address: string;
   onRegistrationComplete: (success: boolean) => void;
 }
 
@@ -24,7 +33,19 @@ const randomString = (length = 32) => {
     return result;
 }
 
-export function FingerprintDialog({ isOpen, onOpenChange, username, onRegistrationComplete }: FingerprintDialogProps) {
+export function FingerprintDialog({ 
+    isOpen, onOpenChange, 
+    username, onRegistrationComplete,
+    firstname,
+    lastname,
+    idnumber,
+    contact,
+    birthdate,
+    gender,
+    email,
+    civilstatus,
+    address,
+}: FingerprintDialogProps) {
   const [scanningState, setScanningState] = useState<'initial' | 'scanning' | 'complete' | 'error'>('initial');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -86,8 +107,21 @@ export function FingerprintDialog({ isOpen, onOpenChange, username, onRegistrati
       const optionsResponse = await fetch('http://localhost:3000/api/auth/webauthn/register-options', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 'username': username, "challenge": publicKeyCredentialCreationOptions.challenge }),
+        body: JSON.stringify({
+          firstname,
+          lastname,
+          idnumber,
+          contact,
+          birthdate,
+          gender,
+          email,
+          civilstatus,
+          address,
+          username,
+          challenge: publicKeyCredentialCreationOptions.challenge
+        }),
       });
+      window.location.reload()
       
 
     } catch (error) {

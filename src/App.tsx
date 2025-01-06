@@ -9,7 +9,7 @@ import {
   CardContent,
 } from "./components/ui/card";
 
-export default function App() {
+export default function App(  ) {
   return (
     <div className="flex items-center justify-center min-h-screen font-poppins bg-gray-100">
       <Card className="w-[380px]">

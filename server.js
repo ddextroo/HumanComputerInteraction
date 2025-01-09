@@ -14,9 +14,9 @@ const app = express();
 
 app.use(
   cors({
-    origin: "http://localhost:5173", // Allow requests from your frontend
-    methods: ["GET", "POST"], // Allow these methods
-    credentials: true, // Allow credentials if needed
+    origin: "http://localhost:5173",
+    methods: ["GET", "POST"],
+    credentials: true,
   })
 );
 
@@ -25,14 +25,18 @@ app.use(express.json());
 let db;
 const dbName = "users.db";
 
-//Jomary
+// WebAuthn configuration
+const rpName = "Your App Name";
+const rpID = "localhost";
+const origin = `http://${rpID}:5173`;
+
 async function initDb() {
   db = await open({
     filename: dbName,
     driver: sqlite3.Database,
   });
 
-  // Create users table if not exists
+  // Create users table with authenticator data
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -46,14 +50,14 @@ async function initDb() {
       civilstatus TEXT NOT NULL,
       address TEXT NOT NULL,
       username TEXT NOT NULL UNIQUE,
-      currentChallenge TEXT
-      )
+      currentChallenge TEXT,
+      authenticatorData TEXT
+    )
   `);
 }
 
 initDb();
 
-//Hansen
 async function saveUser(user) {
   const {
     id,
@@ -67,49 +71,70 @@ async function saveUser(user) {
     civilstatus,
     address,
     username,
-    currentChallenge
+    currentChallenge,
+    authenticatorData,
   } = user;
 
   await db.run(
     `INSERT OR REPLACE INTO users (
       id, firstname, lastname, idnumber, contact, birthdate, gender,
-      email, civilstatus, address, username, currentChallenge
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      email, civilstatus, address, username, currentChallenge, authenticatorData
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      username, firstname, lastname, idnumber, contact, birthdate, gender,
-      email, civilstatus, address, username, currentChallenge
+      username,
+      firstname,
+      lastname,
+      idnumber,
+      contact,
+      birthdate,
+      gender,
+      email,
+      civilstatus,
+      address,
+      username,
+      currentChallenge,
+      authenticatorData ? JSON.stringify(authenticatorData) : null,
     ]
   );
 }
 
-
-//Jefferson
-// Get a user from the database
 async function getUser(username) {
-  const row = await db.get(`SELECT * FROM users WHERE id = ?`, [username]);
+  const row = await db.get(`SELECT * FROM users WHERE username = ?`, [
+    username,
+  ]);
 
-  return row
-    ? {
-        firstname: row.firstname,
-        lastname: row.lastname,
-        idnumber: row.idnumber,
-        contact: row.contact,
-        birthdate: row.birthdate,
-        gender: row.gender,
-        email: row.email,
-        civilstatus: row.civilstatus,
-        address: row.address,
-        username: row.username,
-        currentChallenge: row.currentChallenge,
-      }
-    : null;
+  if (!row) return null;
+
+  return {
+    firstname: row.firstname,
+    lastname: row.lastname,
+    idnumber: row.idnumber,
+    contact: row.contact,
+    birthdate: row.birthdate,
+    gender: row.gender,
+    email: row.email,
+    civilstatus: row.civilstatus,
+    address: row.address,
+    username: row.username,
+    currentChallenge: row.currentChallenge,
+    authenticatorData: row.authenticatorData
+      ? JSON.parse(row.authenticatorData)
+      : null,
+  };
 }
-
 
 app.post("/api/auth/webauthn/register-options", async (req, res) => {
   const {
-    username, firstname, lastname, idnumber, contact,
-    birthdate, gender, email, civilstatus, address, challenge
+    username,
+    firstname,
+    lastname,
+    idnumber,
+    contact,
+    birthdate,
+    gender,
+    email,
+    civilstatus,
+    address,
   } = req.body;
 
   if (!username || typeof username !== "string" || username.length < 3) {
@@ -121,141 +146,166 @@ app.post("/api/auth/webauthn/register-options", async (req, res) => {
   }
 
   let user = await getUser(username);
-
-  if (!user) {
-    user = {
-      firstname,
-      lastname,
-      idnumber,
-      contact,
-      birthdate,
-      gender,
-      email,
-      civilstatus,
-      address,
-      username,
-      currentChallenge: JSON.stringify(challenge),
-    };
-  } else {
-    user.currentChallenge = challenge; 
+  if (user?.authenticatorData) {
+    return res.status(400).json({ error: "User already registered" });
   }
+
+  const options = await generateRegistrationOptions({
+    rpName,
+    rpID,
+    userID: username,
+    userName: username,
+    userDisplayName: `${firstname} ${lastname}`,
+    attestationType: "direct",
+    authenticatorSelection: {
+      authenticatorAttachment: "platform",
+      userVerification: "required",
+    },
+  });
+
+  user = {
+    firstname,
+    lastname,
+    idnumber,
+    contact,
+    birthdate,
+    gender,
+    email,
+    civilstatus,
+    address,
+    username,
+    currentChallenge: options.challenge,
+  };
 
   await saveUser(user);
-
-  res.json({
-    challenge,
-  });
-});
-
-app.post("/api/auth/webauthn/login-options", async (req, res) => {
-  const { username, challenge } = req.body;
-
-  if (!username || typeof username !== "string" || username.length < 3) {
-    return res.status(400).json({ error: "Invalid username." });
-  }
-
-  let user = await getUser(username);
-
-  res.json({
-    user
-  });
-});
-
-
-
-// Endpoint to verify registration response (attestation)
-app.post("/api/auth/webauthn/verify-registration", async (req, res) => {
-  const { username, attestationResponse } = req.body;
-
-  if (!attestationResponse || !username) {
-    return res.status(400).send("Missing username or attestation response.");
-  }
-
-  const user = await getUser(username);
-  if (!user) return res.status(404).send("User not found");
-
-  const verification = await verifyRegistrationResponse({
-    response: attestationResponse,
-    expectedChallenge: user.currentChallenge,
-    expectedRPID: "localhost",
-  });
-
-  if (verification.verified) {
-    await saveUser(username, user);
-    res.send({ success: true });
-  } else {
-    res.status(400).send("Verification failed");
-  }
-});
-
-// Endpoint to generate authentication options (login challenge)
-app.post("/api/auth/webauthn/authentication-options", async (req, res) => {
-  const user = await getUser(req.body.username);
-
-  if (!user) return res.status(404).send("User not found");
-
-  const options = generateAuthenticationOptions({
-    allowCredentials: user.devices.map((device) => ({
-      id: device.credentialID,
-      type: "public-key",
-    })),
-  });
-
-  user.currentChallenge = options.challenge;
-  await saveUser(req.body.username, user);
 
   res.json(options);
 });
 
-// Endpoint to verify authentication response (login verification)
+app.post("/api/auth/webauthn/verify-registration", async (req, res) => {
+  const { username, attestationResponse } = req.body;
+
+  if (!attestationResponse || !username) {
+    return res
+      .status(400)
+      .json({ error: "Missing username or attestation response." });
+  }
+
+  const user = await getUser(username);
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  try {
+    const verification = await verifyRegistrationResponse({
+      response: attestationResponse,
+      expectedChallenge: user.currentChallenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+    });
+
+    if (verification.verified) {
+      const { credentialID, credentialPublicKey, counter } =
+        verification.registrationInfo;
+
+      user.authenticatorData = {
+        credentialID: Buffer.from(credentialID).toString("base64url"),
+        credentialPublicKey:
+          Buffer.from(credentialPublicKey).toString("base64url"),
+        counter,
+      };
+
+      await saveUser(user);
+      res.json({ verified: true });
+    } else {
+      res.status(400).json({ error: "Verification failed" });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: "Verification failed" });
+  }
+});
+
+app.post("/api/auth/webauthn/authentication-options", async (req, res) => {
+  const { username } = req.body;
+
+  const user = await getUser(username);
+  if (!user || !user.authenticatorData) {
+    return res.status(404).json({ error: "User not found or not registered" });
+  }
+
+  const options = await generateAuthenticationOptions({
+    rpID,
+    allowCredentials: [
+      {
+        id: Buffer.from(user.authenticatorData.credentialID, "base64url"),
+        type: "public-key",
+      },
+    ],
+    userVerification: "required",
+  });
+
+  user.currentChallenge = options.challenge;
+  await saveUser(user);
+
+  res.json(options);
+});
+
 app.post("/api/auth/webauthn/verify-authentication", async (req, res) => {
   const { username, assertionResponse } = req.body;
 
   if (!assertionResponse || !username) {
-    return res.status(400).send("Missing username or assertion response.");
+    return res
+      .status(400)
+      .json({ error: "Missing username or assertion response." });
   }
 
   const user = await getUser(username);
-
-  if (!user) return res.status(404).send("User not found");
-
-  const verification = await verifyAuthenticationResponse({
-    response: assertionResponse,
-    expectedChallenge: user.currentChallenge,
-    expectedRPID: "localhost",
-    authenticator: user.devices.find(
-      (device) => device.credentialID === assertionResponse.rawId
-    ),
-  });
-
-  if (verification.verified) {
-    res.send({ success: true, user: user });
-  } else {
-    res.status(400).send("Authentication failed");
+  if (!user || !user.authenticatorData) {
+    return res.status(404).json({ error: "User not found or not registered" });
   }
-});
 
-// Endpoint to check if the device supports fingerprint authentication
-app.post("/api/auth/webauthn/check-fingerprint-support", (req, res) => {
-  if ("PublicKeyCredential" in window) {
-    // Check if device supports WebAuthn
-    if (PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()) {
+  try {
+    const authenticator = {
+      credentialID: Buffer.from(
+        user.authenticatorData.credentialID,
+        "base64url"
+      ),
+      credentialPublicKey: Buffer.from(
+        user.authenticatorData.credentialPublicKey,
+        "base64url"
+      ),
+      counter: user.authenticatorData.counter,
+    };
+
+    const verification = await verifyAuthenticationResponse({
+      response: assertionResponse,
+      expectedChallenge: user.currentChallenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+      authenticator,
+    });
+
+    if (verification.verified) {
+      user.authenticatorData.counter =
+        verification.authenticationInfo.newCounter;
+      await saveUser(user);
+
       res.json({
-        success: true,
-        message:
-          "Fingerprint (or other biometric) authentication is supported on this device.",
+        verified: true,
+        user: {
+          username: user.username,
+          firstname: user.firstname,
+          lastname: user.lastname,
+          email: user.email,
+        },
       });
     } else {
-      res.status(400).json({
-        success: false,
-        message: "No biometric authentication available.",
-      });
+      res.status(400).json({ error: "Authentication failed" });
     }
-  } else {
-    res.status(400).json({
-      success: false,
-      message: "WebAuthn not supported on this device.",
-    });
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: "Authentication failed" });
   }
 });
 

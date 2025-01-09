@@ -2,29 +2,28 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Toast, ToastAction } from "@/components/ui/toast";
 import { Fingerprint } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+interface UserData {
+  username: string;
+  firstname: string;
+  lastname: string;
+  idnumber: string;
+  contact: string;
+  birthdate: string;
+  gender: string;
+  email: string;
+  civilstatus: string;
+  address: string;
+}
 
 export function Login() {
   const [username, setUsername] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [modalMessage, setModalMessage] = useState<{
-    id: any;
-    firstname: any;
-    lastname: any;
-    idnumber: any;
-    contact: any;
-    birthdate: any;
-    gender: any;
-    email: any;
-    civilstatus: any;
-    address: any;
-    username: any;
-    currentChallenge: any;
-  } | null>(null);
-  const { toast } = useToast()
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const { toast } = useToast();
 
   const handleFingerprintLogin = async () => {
     if (!username) {
@@ -36,60 +35,110 @@ export function Login() {
     setErrorMessage(null);
 
     try {
-      const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
-        challenge: Uint8Array.from(username, (c) => c.charCodeAt(0)),
-        rp: {
-          name: "Your App Name",
-          id: window.location.hostname,
+      // 1. Get authentication options from server
+      const optionsResponse = await fetch(
+        "http://localhost:3000/api/auth/webauthn/authentication-options",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username }),
+        }
+      );
+
+      if (!optionsResponse.ok) {
+        const error = await optionsResponse.json();
+        throw new Error(error.error || "Failed to get authentication options");
+      }
+
+      const options = await optionsResponse.json();
+
+      // 2. Create credentials
+      const credential = (await navigator.credentials.get({
+        publicKey: {
+          ...options,
+          challenge: Uint8Array.from(atob(options.challenge), (c) =>
+            c.charCodeAt(0)
+          ),
+          allowCredentials: options.allowCredentials.map((cred: any) => ({
+            ...cred,
+            id: Uint8Array.from(atob(cred.id), (c) => c.charCodeAt(0)),
+          })),
         },
-        user: {
-          id: new Uint8Array(16),
-          name: username,
-          displayName: username,
+      })) as PublicKeyCredential;
+
+      // 3. Get the authentication response
+      const authData = credential.response as AuthenticatorAssertionResponse;
+
+      // 4. Prepare verification data
+      const verificationData = {
+        username,
+        assertionResponse: {
+          id: credential.id,
+          rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
+          response: {
+            authenticatorData: btoa(
+              String.fromCharCode(...new Uint8Array(authData.authenticatorData))
+            ),
+            clientDataJSON: btoa(
+              String.fromCharCode(...new Uint8Array(authData.clientDataJSON))
+            ),
+            signature: btoa(
+              String.fromCharCode(...new Uint8Array(authData.signature))
+            ),
+            userHandle: authData.userHandle
+              ? btoa(
+                  String.fromCharCode(...new Uint8Array(authData.userHandle))
+                )
+              : null,
+          },
+          type: credential.type,
         },
-        pubKeyCredParams: [
-          { type: "public-key", alg: -7 }, // ES256
-          { type: "public-key", alg: -257 }, // RS256
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: "platform",
-          userVerification: "required",
-        },
-        timeout: 60000,
-        attestation: "direct",
       };
 
-      const credential = await navigator.credentials.create({
-        publicKey: publicKeyCredentialCreationOptions,
-      });
+      // 5. Verify with server
+      const verificationResponse = await fetch(
+        "http://localhost:3000/api/auth/webauthn/verify-authentication",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(verificationData),
+        }
+      );
 
-      const optionsResponse = await fetch("http://localhost:3000/api/auth/webauthn/login-options", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username, challenge: publicKeyCredentialCreationOptions.challenge }),
-      });
+      if (!verificationResponse.ok) {
+        const error = await verificationResponse.json();
+        throw new Error(error.error || "Authentication failed");
+      }
 
-      const { user } = await optionsResponse.json();
+      const { verified, user } = await verificationResponse.json();
 
-      if (user) {
-        setModalMessage(user);
+      if (verified && user) {
+        setUserData(user);
+        toast({
+          title: "Login Successful",
+          description: `Welcome back, ${user.firstname}!`,
+        });
       } else {
         toast({
           variant: "destructive",
-          title: "Account not exist!",
-          description: "Please enter your username again",
-        })
-        setModalMessage(null);
+          title: "Authentication Failed",
+          description: "Please try again",
+        });
       }
     } catch (error: any) {
-      setErrorMessage(error.message);
+      console.error(error);
+      toast({
+        variant: "destructive",
+        title: "Authentication Error",
+        description: error.message || "Failed to authenticate",
+      });
+      setErrorMessage(error.message || "Authentication failed");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    //Alvin
     <div className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="username">Username</Label>
@@ -111,7 +160,7 @@ export function Login() {
             disabled={isLoading}
           >
             {isLoading ? (
-              <span className="loader" /> // Replace with your loading spinner
+              <span className="loader" />
             ) : (
               <Fingerprint className="h-12 w-12" />
             )}
@@ -120,84 +169,97 @@ export function Login() {
         </div>
       </div>
 
-      {/* Modal Popup */}
-      {modalMessage && (
+      {/* User Data Modal */}
+      {userData && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg p-8 space-y-3 text-center w-auto mx-auto shadow-lg">
             <p className="text-xl font-semibold text-gray-800 mb-6">
-              Welcome {modalMessage.firstname} {modalMessage.lastname}!
+              Welcome {userData.firstname} {userData.lastname}!
             </p>
 
-            {/* 4 Column Grid Layout */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-4 text-left p-4">
               <div>
-                <p><strong>ID Number:</strong></p>
+                <p>
+                  <strong>ID Number:</strong>
+                </p>
               </div>
               <div>
-                <p>{modalMessage.idnumber}</p>
-              </div>
-
-              <div>
-                <p><strong>Contact:</strong></p>
-              </div>
-              <div>
-                <p>{modalMessage.contact}</p>
+                <p>{userData.idnumber}</p>
               </div>
 
               <div>
-                <p><strong>Birthdate:</strong></p>
+                <p>
+                  <strong>Contact:</strong>
+                </p>
               </div>
               <div>
-                <p>{modalMessage.birthdate}</p>
-              </div>
-
-              <div>
-                <p><strong>Gender:</strong></p>
-              </div>
-              <div>
-                <p>{modalMessage.gender}</p>
+                <p>{userData.contact}</p>
               </div>
 
               <div>
-                <p><strong>Email:</strong></p>
+                <p>
+                  <strong>Birthdate:</strong>
+                </p>
               </div>
               <div>
-                <p>{modalMessage.email}</p>
-              </div>
-
-              <div>
-                <p><strong>Civil Status:</strong></p>
-              </div>
-              <div>
-                <p>{modalMessage.civilstatus}</p>
+                <p>{userData.birthdate}</p>
               </div>
 
               <div>
-                <p><strong>Address:</strong></p>
+                <p>
+                  <strong>Gender:</strong>
+                </p>
               </div>
               <div>
-                <p>{modalMessage.address}</p>
+                <p>{userData.gender}</p>
               </div>
 
               <div>
-                <p><strong>Username:</strong></p>
+                <p>
+                  <strong>Email:</strong>
+                </p>
               </div>
               <div>
-                <p>{modalMessage.username}</p>
+                <p>{userData.email}</p>
+              </div>
+
+              <div>
+                <p>
+                  <strong>Civil Status:</strong>
+                </p>
+              </div>
+              <div>
+                <p>{userData.civilstatus}</p>
+              </div>
+
+              <div>
+                <p>
+                  <strong>Address:</strong>
+                </p>
+              </div>
+              <div>
+                <p>{userData.address}</p>
+              </div>
+
+              <div>
+                <p>
+                  <strong>Username:</strong>
+                </p>
+              </div>
+              <div>
+                <p>{userData.username}</p>
               </div>
             </div>
 
-            {/* Logout Button */}
             <div className="mt-6 flex justify-center">
-              <Button 
+              <Button
                 onClick={() => {
-                  setModalMessage(null)
+                  setUserData(null);
                   toast({
-                    variant: "destructive",
                     title: "Logout Successful",
-                    description: "You have been logout",
-                  })
-                }} 
+                    description: "You have been logged out",
+                  });
+                }}
                 variant="destructive"
               >
                 Logout

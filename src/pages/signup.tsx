@@ -1,11 +1,9 @@
-"use client";
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Fingerprint } from 'lucide-react';
-import { FingerprintDialog } from "./signupDialog";
+import { Fingerprint } from "lucide-react";
+import { FingerprintDialog } from "./FingerprintDialog";
 import {
   Select,
   SelectContent,
@@ -30,68 +28,81 @@ export function Signup() {
   const [isFingerprintEnabled, setIsFingerprintEnabled] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [modalMessage, setModalMessage] = useState<string | null>(null);
+  const { toast } = useToast();
 
-  // Simulate existing accounts using a Set
-  const existingAccounts = new Set(["existingUser1", "existingUser2"]);
-  const { toast } = useToast()
-
-  const handleRegisterFingerprint = () => {
+  const handleRegisterFingerprint = async () => {
     const requiredFields = [
-      { name: 'Last Name', value: lastname },
-      { name: 'First Name', value: firstname },
-      { name: 'ID Number', value: idnumber },
-      { name: 'Contact Number', value: contact },
-      { name: 'Birthdate', value: birthdate },
-      { name: 'Gender', value: gender },
-      { name: 'Email', value: email },
-      { name: 'Civil Status', value: civilstatus },
-      { name: 'Address', value: address },
-      { name: 'Username', value: username },
+      { name: "Last Name", value: lastname },
+      { name: "First Name", value: firstname },
+      { name: "ID Number", value: idnumber },
+      { name: "Contact Number", value: contact },
+      { name: "Birthdate", value: birthdate },
+      { name: "Gender", value: gender },
+      { name: "Email", value: email },
+      { name: "Civil Status", value: civilstatus },
+      { name: "Address", value: address },
+      { name: "Username", value: username },
     ];
 
-    const emptyFields = requiredFields.filter(field => !field.value);
+    const emptyFields = requiredFields.filter((field) => !field.value);
 
     if (emptyFields.length > 0) {
-      setErrorMessage(
-        `Please fill in the following fields before registering your fingerprint`
-      );
       toast({
         variant: "destructive",
         title: "Please fill all fields",
+        description: "All fields are required for registration",
       });
       return;
     }
 
-    // Check if the account already exists
-    const accountExists = checkAccountExistence(username);
-    if (accountExists) {
-      setModalMessage("Account already exists!"); // Show modal if account exists
-      return; // Do not proceed further
+    try {
+      // Check if username exists
+      const checkResponse = await fetch(
+        "http://localhost:3000/api/auth/webauthn/register-options",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, email }),
+        }
+      );
+
+      if (!checkResponse.ok) {
+        const error = await checkResponse.json();
+        toast({
+          variant: "destructive",
+          title: "Registration Error",
+          description: error.error || "Username or email already exists",
+        });
+        return;
+      }
+
+      setErrorMessage(null);
+      setIsDialogOpen(true);
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to check username availability",
+      });
     }
-
-    setErrorMessage(null);
-    setIsDialogOpen(true); // Proceed with fingerprint registration if account doesn't exist
-  };
-
-
-  const checkAccountExistence = (username: string): boolean => {
-    // Check if the username is in the existing accounts set
-    return existingAccounts.has(username);
   };
 
   const handleRegistrationComplete = (success: boolean) => {
     if (success) {
       setIsFingerprintEnabled(true);
       setErrorMessage(null);
+      toast({
+        title: "Registration Successful",
+        description: "Your fingerprint has been registered successfully",
+      });
     } else {
       setIsFingerprintEnabled(false);
-      setErrorMessage("Fingerprint registration failed. Please try again.");
+      toast({
+        variant: "destructive",
+        title: "Registration Failed",
+        description: "Failed to register fingerprint. Please try again.",
+      });
     }
-  };
-
-  const handleModalClose = () => {
-    setModalMessage(null); // Close modal
   };
 
   return (
@@ -106,6 +117,7 @@ export function Signup() {
           required
         />
       </div>
+      {/* ... other input fields remain the same ... */}
       <div className="space-y-2">
         <Label htmlFor="firstname">First Name</Label>
         <Input
@@ -224,33 +236,23 @@ export function Signup() {
         </div>
       </div>
 
-      {/* Fingerprint Registration Dialog */}
       <FingerprintDialog
         isOpen={isDialogOpen}
         onOpenChange={setIsDialogOpen}
-        username={username}
-        firstname={firstname}
-        lastname={lastname}
-        idnumber={idnumber}
-        contact={contact}
-        birthdate={birthdate}
-        gender={gender}
-        email={email}
-        civilstatus={civilstatus}
-        address={address}
+        userData={{
+          username,
+          firstname,
+          lastname,
+          idnumber,
+          contact,
+          birthdate,
+          gender,
+          email,
+          civilstatus,
+          address,
+        }}
         onRegistrationComplete={handleRegistrationComplete}
       />
-
-      {/* Modal for account existence */}
-      {modalMessage && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg p-6 space-y-4 text-center">
-            <p className="text-lg font-semibold">{modalMessage}</p>
-            <Button onClick={handleModalClose}>Close</Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
-

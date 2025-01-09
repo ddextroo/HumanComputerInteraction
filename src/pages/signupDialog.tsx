@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Fingerprint } from 'lucide-react';
+import { Fingerprint } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -7,13 +7,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
 
-interface FingerprintDialogProps {
-  isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
+interface UserData {
   username: string;
-  lastname: string;
   firstname: string;
+  lastname: string;
   idnumber: string;
   contact: string;
   birthdate: string;
@@ -21,118 +20,157 @@ interface FingerprintDialogProps {
   email: string;
   civilstatus: string;
   address: string;
+}
+
+interface FingerprintDialogProps {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  userData: UserData;
   onRegistrationComplete: (success: boolean) => void;
 }
 
-const randomString = (length = 32) => {
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let result = '';
-    for (let i = 0; i < length; i++) {
-        result += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
-    return result;
-}
-
-export function FingerprintDialog({ 
-    isOpen, onOpenChange, 
-    username, onRegistrationComplete,
-    firstname,
-    lastname,
-    idnumber,
-    contact,
-    birthdate,
-    gender,
-    email,
-    civilstatus,
-    address,
+export function FingerprintDialog({
+  isOpen,
+  onOpenChange,
+  userData,
+  onRegistrationComplete,
 }: FingerprintDialogProps) {
-  const [scanningState, setScanningState] = useState<'initial' | 'scanning' | 'complete' | 'error'>('initial');
+  const [scanningState, setScanningState] = useState<
+    "initial" | "scanning" | "complete" | "error"
+  >("initial");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (isOpen) {
-      setScanningState('initial');
+      setScanningState("initial");
       setErrorMessage(null);
       registerFingerprint();
     }
-  }, [isOpen, username]);
+  }, [isOpen]);
 
   const registerFingerprint = async () => {
     try {
-      setScanningState('scanning');
+      setScanningState("scanning");
 
       if (!window.PublicKeyCredential) {
         throw new Error("WebAuthn is not supported in this browser.");
       }
 
-      const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      const available =
+        await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
       if (!available) {
         throw new Error("No fingerprint sensor is available on this device.");
       }
 
-      const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
-        challenge: Uint8Array.from(
-            // randomString(), c => c.charCodeAt(0)), 
-            username, c => c.charCodeAt(0)),
-        rp: {
-          name: "Your App Name",
-          id: window.location.hostname,
+      // Get registration options from server
+      const optionsResponse = await fetch(
+        "http://localhost:3000/api/auth/webauthn/register-options",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(userData),
+        }
+      );
+
+      if (!optionsResponse.ok) {
+        const error = await optionsResponse.json();
+        throw new Error(error.error || "Failed to get registration options");
+      }
+
+      const options = await optionsResponse.json();
+
+      // Create credentials
+      const credential = (await navigator.credentials.create({
+        publicKey: {
+          ...options,
+          challenge: Uint8Array.from(atob(options.challenge), (c) =>
+            c.charCodeAt(0)
+          ),
+          user: {
+            id: Uint8Array.from(userData.username, (c) => c.charCodeAt(0)),
+            name: userData.username,
+            displayName: `${userData.firstname} ${userData.lastname}`,
+          },
+          rp: {
+            name: "Your App Name",
+            id: window.location.hostname,
+          },
         },
-        user: {
-          id: new Uint8Array(16), 
-          name: username,
-          displayName: username,
+      })) as PublicKeyCredential;
+
+      // Prepare verification data
+      const attestationResponse =
+        credential.response as AuthenticatorAttestationResponse;
+
+      const verificationData = {
+        username: userData.username,
+        attestationResponse: {
+          id: credential.id,
+          rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
+          response: {
+            attestationObject: btoa(
+              String.fromCharCode(
+                ...new Uint8Array(attestationResponse.attestationObject)
+              )
+            ),
+            clientDataJSON: btoa(
+              String.fromCharCode(
+                ...new Uint8Array(attestationResponse.clientDataJSON)
+              )
+            ),
+          },
+          type: credential.type,
         },
-        pubKeyCredParams: [
-          { type: "public-key", alg: -7 }, // ES256
-          { type: "public-key", alg: -257 }, // RS256
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: "platform",
-          userVerification: "required",
-        },
-        timeout: 60000,
-        attestation: "direct",
       };
 
-      const credential = await navigator.credentials.create({
-        publicKey: publicKeyCredentialCreationOptions,
-      });
+      // Verify registration with server
+      const verificationResponse = await fetch(
+        "http://localhost:3000/api/auth/webauthn/verify-registration",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(verificationData),
+        }
+      );
 
-      console.log(credential)
+      if (!verificationResponse.ok) {
+        const error = await verificationResponse.json();
+        throw new Error(error.error || "Failed to verify registration");
+      }
 
-      console.log(publicKeyCredentialCreationOptions)
+      const { verified } = await verificationResponse.json();
 
-
-      const optionsResponse = await fetch('http://localhost:3000/api/auth/webauthn/register-options', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          firstname,
-          lastname,
-          idnumber,
-          contact,
-          birthdate,
-          gender,
-          email,
-          civilstatus,
-          address,
-          username,
-          challenge: publicKeyCredentialCreationOptions.challenge
-        }),
-      });
-      window.location.reload()
-      
-
+      if (verified) {
+        setScanningState("complete");
+        onRegistrationComplete(true);
+        toast({
+          title: "Registration Successful",
+          description: "Your fingerprint has been registered successfully",
+        });
+        setTimeout(() => onOpenChange(false), 2000);
+      } else {
+        throw new Error("Registration verification failed");
+      }
     } catch (error) {
       console.error("Error registering fingerprint:", error);
-      setScanningState('error');
+      setScanningState("error");
       if (error instanceof Error) {
         setErrorMessage(error.message);
       } else {
-        setErrorMessage("An unknown error occurred during fingerprint registration.");
+        setErrorMessage(
+          "An unknown error occurred during fingerprint registration."
+        );
       }
       onRegistrationComplete(false);
+      toast({
+        variant: "destructive",
+        title: "Registration Failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to register fingerprint",
+      });
     }
   };
 
@@ -142,20 +180,28 @@ export function FingerprintDialog({
         <DialogHeader>
           <DialogTitle>Fingerprint Registration</DialogTitle>
           <DialogDescription>
-            {scanningState === 'initial' && "Preparing to scan your fingerprint..."}
-            {scanningState === 'scanning' && "Please follow your device's instructions to scan your fingerprint."}
-            {scanningState === 'complete' && "Fingerprint registered successfully!"}
-            {scanningState === 'error' && "An error occurred during registration."}
+            {scanningState === "initial" &&
+              "Preparing to scan your fingerprint..."}
+            {scanningState === "scanning" &&
+              "Please follow your device's instructions to scan your fingerprint."}
+            {scanningState === "complete" &&
+              "Fingerprint registered successfully!"}
+            {scanningState === "error" &&
+              "An error occurred during registration."}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col items-center justify-center space-y-4">
           <div className="w-24 h-24 rounded-full border-2 border-primary flex items-center justify-center">
-            <Fingerprint 
+            <Fingerprint
               className={`h-12 w-12 ${
-                scanningState === 'scanning' ? 'animate-pulse text-primary' : 
-                scanningState === 'complete' ? 'text-green-500' :
-                scanningState === 'error' ? 'text-red-500' : ''
-              }`} 
+                scanningState === "scanning"
+                  ? "animate-pulse text-primary"
+                  : scanningState === "complete"
+                  ? "text-green-500"
+                  : scanningState === "error"
+                  ? "text-red-500"
+                  : ""
+              }`}
             />
           </div>
           {errorMessage && (
@@ -166,4 +212,3 @@ export function FingerprintDialog({
     </Dialog>
   );
 }
-

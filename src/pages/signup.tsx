@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Fingerprint } from "lucide-react";
-import { FingerprintDialog } from "./FingerprintDialog";
 import {
   Select,
   SelectContent,
@@ -12,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { FingerprintDialog } from "./signupDialog";
 
 export function Signup() {
   const [lastname, setLastName] = useState("");
@@ -56,25 +56,27 @@ export function Signup() {
     }
 
     try {
-      // Check if username exists
-      const checkResponse = await fetch(
-        "http://localhost:3000/api/auth/webauthn/register-options",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, email }),
-        }
-      );
+      // // Check if username exists
+      // const checkResponse = await fetch(
+      //   "http://localhost:3000/api/auth/webauthn/verify-registration",
+      //   {
+      //     method: "POST",
+      //     headers: { "Content-Type": "application/json" },
+      //     body: JSON.stringify({
+      //       username,
+      //     }),
+      //   }
+      // );
 
-      if (!checkResponse.ok) {
-        const error = await checkResponse.json();
-        toast({
-          variant: "destructive",
-          title: "Registration Error",
-          description: error.error || "Username or email already exists",
-        });
-        return;
-      }
+      // if (!checkResponse.ok) {
+      //   const error = await checkResponse.json();
+      //   toast({
+      //     variant: "destructive",
+      //     title: "Registration Error",
+      //     description: error.error || "Username or email already exists",
+      //   });
+      //   return;
+      // }
 
       setErrorMessage(null);
       setIsDialogOpen(true);

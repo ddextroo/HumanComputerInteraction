@@ -150,10 +150,13 @@ app.post("/api/auth/webauthn/register-options", async (req, res) => {
     return res.status(400).json({ error: "User already registered" });
   }
 
+  // Convert username to Uint8Array for userID
+  const userID = new TextEncoder().encode(username);
+
   const options = await generateRegistrationOptions({
     rpName,
     rpID,
-    userID: username,
+    userID,
     userName: username,
     userDisplayName: `${firstname} ${lastname}`,
     attestationType: "direct",

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { FingerprintDialog } from "./signupDialog";
+import { server, client } from "@passwordless-id/webauthn";
 
 export function Signup() {
   const [lastname, setLastName] = useState("");
@@ -41,7 +42,6 @@ export function Signup() {
       { name: "Email", value: email },
       { name: "Civil Status", value: civilstatus },
       { name: "Address", value: address },
-      { name: "Username", value: username },
     ];
 
     const emptyFields = requiredFields.filter((field) => !field.value);
@@ -57,16 +57,21 @@ export function Signup() {
 
     try {
       // // Check if username exists
-      // const checkResponse = await fetch(
-      //   "http://localhost:3000/api/auth/webauthn/verify-registration",
-      //   {
-      //     method: "POST",
-      //     headers: { "Content-Type": "application/json" },
-      //     body: JSON.stringify({
-      //       username,
-      //     }),
-      //   }
-      // );
+      // const checkResponse = await fetch("http://localhost:3000/api/register", {
+      //   method: "POST",
+      //   headers: { "Content-Type": "application/json" },
+      // body: JSON.stringify({
+      //   firstname,
+      //   lastname,
+      //   idnumber,
+      //   contact,
+      //   birthdate,
+      //   gender,
+      //   email,
+      //   civilstatus,
+      //   address,
+      // }),
+      // });
 
       // if (!checkResponse.ok) {
       //   const error = await checkResponse.json();
@@ -77,6 +82,13 @@ export function Signup() {
       //   });
       //   return;
       // }
+      const challenge = server.randomChallenge();
+
+      const registration = await client.register({
+        user: `${firstname} ${lastname}`,
+        challenge: challenge,
+      });
+      console.log(registration);
 
       setErrorMessage(null);
       setIsDialogOpen(true);
@@ -209,16 +221,6 @@ export function Signup() {
           required
         />
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="username">Username</Label>
-        <Input
-          id="username"
-          placeholder="johndoe123"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-        />
-      </div>
       <div className="mt-6 space-y-4">
         <div className="grid place-items-center">
           <Button
@@ -238,7 +240,7 @@ export function Signup() {
         </div>
       </div>
 
-      <FingerprintDialog
+      {/* <FingerprintDialog
         isOpen={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         userData={{
@@ -254,7 +256,7 @@ export function Signup() {
           address,
         }}
         onRegistrationComplete={handleRegistrationComplete}
-      />
+      /> */}
     </div>
   );
 }

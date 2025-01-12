@@ -4,9 +4,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Fingerprint } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { client, server } from "@passwordless-id/webauthn";
 
 interface UserData {
-  username: string;
   firstname: string;
   lastname: string;
   idnumber: string;
@@ -19,137 +19,23 @@ interface UserData {
 }
 
 export function Login() {
-  const [username, setUsername] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
   const { toast } = useToast();
 
   const handleFingerprintLogin = async () => {
-    if (!username) {
-      setErrorMessage("Please enter a username before authenticating.");
-      return;
-    }
-
     setIsLoading(true);
     setErrorMessage(null);
+    const challenge = server.randomChallenge();
 
-    try {
-      // 1. Get authentication options from server
-      const optionsResponse = await fetch(
-        "http://localhost:3000/api/auth/webauthn/authentication-options",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username }),
-        }
-      );
-
-      if (!optionsResponse.ok) {
-        const error = await optionsResponse.json();
-        throw new Error(error.error || "Failed to get authentication options");
-      }
-
-      const options = await optionsResponse.json();
-
-      // 2. Create credentials
-      const credential = (await navigator.credentials.get({
-        publicKey: {
-          ...options,
-          challenge: Uint8Array.from(atob(options.challenge), (c) =>
-            c.charCodeAt(0)
-          ),
-          allowCredentials: options.allowCredentials.map((cred: any) => ({
-            ...cred,
-            id: Uint8Array.from(atob(cred.id), (c) => c.charCodeAt(0)),
-          })),
-        },
-      })) as PublicKeyCredential;
-
-      // 3. Get the authentication response
-      const authData = credential.response as AuthenticatorAssertionResponse;
-
-      // 4. Prepare verification data
-      const verificationData = {
-        username,
-        assertionResponse: {
-          id: credential.id,
-          rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
-          response: {
-            authenticatorData: btoa(
-              String.fromCharCode(...new Uint8Array(authData.authenticatorData))
-            ),
-            clientDataJSON: btoa(
-              String.fromCharCode(...new Uint8Array(authData.clientDataJSON))
-            ),
-            signature: btoa(
-              String.fromCharCode(...new Uint8Array(authData.signature))
-            ),
-            userHandle: authData.userHandle
-              ? btoa(
-                  String.fromCharCode(...new Uint8Array(authData.userHandle))
-                )
-              : null,
-          },
-          type: credential.type,
-        },
-      };
-
-      // 5. Verify with server
-      const verificationResponse = await fetch(
-        "http://localhost:3000/api/auth/webauthn/verify-authentication",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(verificationData),
-        }
-      );
-
-      if (!verificationResponse.ok) {
-        const error = await verificationResponse.json();
-        throw new Error(error.error || "Authentication failed");
-      }
-
-      const { verified, user } = await verificationResponse.json();
-
-      if (verified && user) {
-        setUserData(user);
-        toast({
-          title: "Login Successful",
-          description: `Welcome back, ${user.firstname}!`,
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Authentication Failed",
-          description: "Please try again",
-        });
-      }
-    } catch (error: any) {
-      console.error(error);
-      toast({
-        variant: "destructive",
-        title: "Authentication Error",
-        description: error.message || "Failed to authenticate",
-      });
-      setErrorMessage(error.message || "Authentication failed");
-    } finally {
-      setIsLoading(false);
-    }
+    await client.authenticate({
+      challenge: challenge,
+    });
   };
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="username">Username</Label>
-        <Input
-          id="username"
-          placeholder="Enter your username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-        />
-      </div>
       <div className="mt-6 space-y-4">
         <div className="grid place-items-center">
           <Button
@@ -245,9 +131,6 @@ export function Login() {
                 <p>
                   <strong>Username:</strong>
                 </p>
-              </div>
-              <div>
-                <p>{userData.username}</p>
               </div>
             </div>
 
